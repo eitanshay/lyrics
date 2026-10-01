@@ -3,27 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Car Karaoke</title>
+<title>eitan shay · ES-01</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+  /* Eitan Shay Design System: night theme tokens */
   :root{
-    --bg:#07070a; --dim:rgba(255,255,255,.28); --near:rgba(255,255,255,.5);
-    --hi:#ffffff; --accent:#1ed760; --fs:1;
+    --night:#1D1D1B; --night-2:#2A2A27; --night-3:#3A3936; --night-line:#44433F;
+    --night-ink:#ECEBE7; --night-ink-2:#B5B2AB;
+    --signal:#F0662A; --signal-press:#D9551C; --on-signal:#1D1D1B;
+    --font-sans:"Figtree",ui-sans-serif,system-ui,sans-serif;
+    --font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --bg:var(--night); --dim:rgba(236,235,231,.30); --near:rgba(236,235,231,.58);
+    --hi:var(--night-ink); --accent:var(--signal); --fs:1;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--hi);
-    font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
-  #bg{position:fixed;inset:-10%;background-size:cover;background-position:center;
+    font-family:var(--font-sans);overflow:hidden}
+  #bg{display:none;position:fixed;inset:-10%;background-size:cover;background-position:center;
     filter:blur(60px) brightness(.35) saturate(1.4);transition:background-image .6s, opacity .6s;opacity:0}
   #bg.on{opacity:1}
   #app{position:relative;height:100%;display:flex;flex-direction:column}
 
-  header{display:flex;align-items:center;gap:18px;padding:16px 28px;min-height:96px}
-  #art{width:64px;height:64px;border-radius:8px;background:#222 center/cover;flex:none}
+  .brandbar{display:flex;align-items:center;gap:14px;padding:12px 28px 0}
+  .brandbar svg{height:22px;width:auto;flex:none}
+  .wm{font-weight:600;font-size:20px;letter-spacing:-.03em}
+  .tag{font-family:var(--font-mono);font-weight:700;font-size:13px;letter-spacing:.04em;
+    padding:4px 9px;border:1px solid var(--night-line);border-radius:8px;color:var(--night-ink-2)}
+  .brandbar .sp{flex:1}
+  header{display:flex;align-items:center;gap:18px;padding:12px 28px 16px;min-height:88px}
+  #art{width:64px;height:64px;border-radius:16px;background:var(--night-2) center/cover;flex:none}
   #meta{min-width:0;flex:1}
-  #title{font-size:26px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #title{font-size:28px;font-weight:600;letter-spacing:-.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #artist{font-size:20px;color:var(--near);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #status{font-size:16px;color:var(--near);text-align:right;flex:none;max-width:30%}
-  #bar{height:4px;background:rgba(255,255,255,.12)}
+  #status{font-family:var(--font-mono);font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--night-ink-2);text-align:right;flex:none}
+  #bar{height:3px;background:var(--night-line)}
   #barfill{height:100%;width:0;background:var(--accent)}
 
   #stage{position:relative;flex:1;overflow:hidden;
@@ -31,15 +46,15 @@
             mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent)}
   #lines{position:absolute;left:0;right:0;top:0;padding:0 6%;
     transition:transform .55s cubic-bezier(.2,.7,.2,1);will-change:transform}
-  .line{font-size:calc(clamp(30px,5.2vw,64px) * var(--fs));font-weight:800;line-height:1.18;
+  .line{font-size:calc(clamp(30px,5.2vw,64px) * var(--fs));font-weight:600;line-height:1.16;
     margin:0 0 .55em;color:var(--dim);transition:color .35s, transform .35s, opacity .35s;
-    transform-origin:left center;transform:scale(.92);opacity:.9;letter-spacing:-.01em;cursor:pointer}
-  .line.past{color:rgba(255,255,255,.22)}
+    transform-origin:left center;transform:scale(.92);opacity:.9;letter-spacing:-.03em;cursor:pointer}
+  .line.past{color:rgba(236,235,231,.2)}
   .line.next{color:var(--near)}
   .line.active{transform:scale(1);opacity:1}
-  .line .w{transition:color .12s linear, text-shadow .2s}
-  .line.active .w{color:var(--dim)}
-  .line.active .w.on{color:var(--hi);text-shadow:0 0 22px rgba(30,215,96,.55)}
+  .line .w{transition:color .12s linear}
+  .line.active .w{color:var(--night-ink)}
+  .line.active .w.on{color:var(--signal)}
   .line.note{color:var(--near)}
   .plain .line{transform:none;color:var(--near);font-size:calc(clamp(26px,4vw,48px) * var(--fs))}
 
@@ -47,26 +62,31 @@
     text-align:center;padding:0 10%;gap:22px}
   #msg h1{font-size:clamp(34px,5vw,60px);margin:0}
   #msg p{font-size:clamp(20px,2.4vw,30px);color:var(--near);margin:0;max-width:900px}
-  button{font:inherit;color:#000;background:var(--accent);border:0;border-radius:999px;
-    padding:20px 44px;font-size:28px;font-weight:700;cursor:pointer}
-  button.ghost{background:rgba(255,255,255,.12);color:#fff;padding:14px 26px;font-size:24px}
-  input{font:inherit;font-size:24px;padding:14px 18px;border-radius:12px;border:1px solid #444;
-    background:#111;color:#fff;width:min(560px,90%);user-select:text}
+  button{font:inherit;color:var(--on-signal);background:var(--signal);border:0;border-radius:16px;
+    padding:20px 44px;font-size:26px;font-weight:600;letter-spacing:-.02em;cursor:pointer}
+  button:active{background:var(--signal-press)}
+  button.ghost{background:var(--night-2);color:var(--night-ink);border:1px solid var(--night-line);padding:14px 24px;font-size:22px}
+  button.ghost:active{background:var(--night-3)}
+  input{font:inherit;font-size:24px;padding:14px 18px;border-radius:12px;border:1px solid var(--night-line);
+    background:var(--night-2);color:var(--night-ink);width:min(560px,90%);user-select:text}
 
   footer{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 18px;
     transition:opacity .5s}
   footer.hide{opacity:0;pointer-events:none}
-  #off{min-width:120px;text-align:center;font-size:20px;color:var(--near)}
+  #off{min-width:120px;text-align:center;font-family:var(--font-mono);font-size:15px;letter-spacing:.04em;color:var(--night-ink-2)}
+  #msg .hero{display:flex;align-items:center;gap:16px}
+  #msg .hero svg{height:44px;width:auto}
+  #msg h1{font-weight:600;letter-spacing:-.04em;line-height:.98}
   .hidden{display:none!important}
 </style>
 </head>
 <body>
 <div id="bg"></div>
 <div id="app">
+  <div class="brandbar"><svg viewBox="0 0 214 100" aria-hidden="true"><circle cx="50" cy="50" r="50" fill="#ECEBE7"/><rect x="114" y="0" width="100" height="100" rx="28" fill="#F0662A"/></svg><span class="wm">eitan shay</span><span class="tag">ES-01</span><span class="sp"></span><div id="status"></div></div>
   <header>
     <div id="art"></div>
-    <div id="meta"><div id="title">Car Karaoke</div><div id="artist">Connect Spotify to start</div></div>
-    <div id="status"></div>
+    <div id="meta"><div id="title">lyrics</div><div id="artist">Connect Spotify to start</div></div>
   </header>
   <div id="bar"><div id="barfill"></div></div>
 
@@ -225,6 +245,8 @@ const posMs = () => S.base + (S.playing ? performance.now() - S.baseAt : 0);
 function showMsg(h, p, withButton){
   const m = $("msg"); m.classList.remove("hidden"); $("lines").classList.add("hidden");
   m.innerHTML = "";
+  if(withButton){ const hero = document.createElement("div"); hero.className = "hero";
+    hero.innerHTML = '<svg viewBox="0 0 214 100" aria-hidden="true"><circle cx="50" cy="50" r="50" fill="#ECEBE7"/><rect x="114" y="0" width="100" height="100" rx="28" fill="#F0662A"/></svg><span class="tag">ES-01</span>'; m.appendChild(hero); }
   const e1 = document.createElement("h1"); e1.textContent = h; m.appendChild(e1);
   if(p){ const e2 = document.createElement("p"); e2.textContent = p; m.appendChild(e2); }
   if(withButton) addLoginUI(m);
@@ -335,7 +357,7 @@ async function poll(){
   let delay = POLL_MS;
   try{
     const tok = await accessToken();
-    if(!tok){ showMsg("Connect Spotify", "Log in once. The page then follows whatever is playing on your account, including the car.", true); $("foot").classList.add("hidden"); return; }
+    if(!tok){ showMsg("Sing along to what\u2019s playing.", "Connect Spotify once. This page follows the track playing on your account, car included.", true); $("foot").classList.add("hidden"); return; }
     $("foot").classList.remove("hidden");
     const t0 = performance.now();
     const r = await fetch("https://api.spotify.com/v1/me/player/currently-playing?additional_types=track", {headers:{Authorization:"Bearer " + tok}});
