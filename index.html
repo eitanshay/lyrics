@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Car Karaoke</title>
+<style>
+  :root{
+    --bg:#07070a; --dim:rgba(255,255,255,.28); --near:rgba(255,255,255,.5);
+    --hi:#ffffff; --accent:#1ed760; --fs:1;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--hi);
+    font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+  #bg{position:fixed;inset:-10%;background-size:cover;background-position:center;
+    filter:blur(60px) brightness(.35) saturate(1.4);transition:background-image .6s, opacity .6s;opacity:0}
+  #bg.on{opacity:1}
+  #app{position:relative;height:100%;display:flex;flex-direction:column}
+
+  header{display:flex;align-items:center;gap:18px;padding:16px 28px;min-height:96px}
+  #art{width:64px;height:64px;border-radius:8px;background:#222 center/cover;flex:none}
+  #meta{min-width:0;flex:1}
+  #title{font-size:26px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #artist{font-size:20px;color:var(--near);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #status{font-size:16px;color:var(--near);text-align:right;flex:none;max-width:30%}
+  #bar{height:4px;background:rgba(255,255,255,.12)}
+  #barfill{height:100%;width:0;background:var(--accent)}
+
+  #stage{position:relative;flex:1;overflow:hidden;
+    -webkit-mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent);
+            mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent)}
+  #lines{position:absolute;left:0;right:0;top:0;padding:0 6%;
+    transition:transform .55s cubic-bezier(.2,.7,.2,1);will-change:transform}
+  .line{font-size:calc(clamp(30px,5.2vw,64px) * var(--fs));font-weight:800;line-height:1.18;
+    margin:0 0 .55em;color:var(--dim);transition:color .35s, transform .35s, opacity .35s;
+    transform-origin:left center;transform:scale(.92);opacity:.9;letter-spacing:-.01em;cursor:pointer}
+  .line.past{color:rgba(255,255,255,.22)}
+  .line.next{color:var(--near)}
+  .line.active{transform:scale(1);opacity:1}
+  .line .w{transition:color .12s linear, text-shadow .2s}
+  .line.active .w{color:var(--dim)}
+  .line.active .w.on{color:var(--hi);text-shadow:0 0 22px rgba(30,215,96,.55)}
+  .line.note{color:var(--near)}
+  .plain .line{transform:none;color:var(--near);font-size:calc(clamp(26px,4vw,48px) * var(--fs))}
+
+  #msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:0 10%;gap:22px}
+  #msg h1{font-size:clamp(34px,5vw,60px);margin:0}
+  #msg p{font-size:clamp(20px,2.4vw,30px);color:var(--near);margin:0;max-width:900px}
+  button{font:inherit;color:#000;background:var(--accent);border:0;border-radius:999px;
+    padding:20px 44px;font-size:28px;font-weight:700;cursor:pointer}
+  button.ghost{background:rgba(255,255,255,.12);color:#fff;padding:14px 26px;font-size:24px}
+  input{font:inherit;font-size:24px;padding:14px 18px;border-radius:12px;border:1px solid #444;
+    background:#111;color:#fff;width:min(560px,90%);user-select:text}
+
+  footer{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 18px;
+    transition:opacity .5s}
+  footer.hide{opacity:0;pointer-events:none}
+  #off{min-width:120px;text-align:center;font-size:20px;color:var(--near)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="app">
+  <header>
+    <div id="art"></div>
+    <div id="meta"><div id="title">Car Karaoke</div><div id="artist">Connect Spotify to start</div></div>
+    <div id="status"></div>
+  </header>
+  <div id="bar"><div id="barfill"></div></div>
+
+  <div id="stage">
+    <div id="lines"></div>
+    <div id="msg"></div>
+  </div>
+
+  <footer id="foot" class="hidden">
+    <button class="ghost" id="offM">Lyrics earlier</button>
+    <div id="off">sync 0.0s</div>
+    <button class="ghost" id="offP">Lyrics later</button>
+    <button class="ghost" id="fsM">A&minus;</button>
+    <button class="ghost" id="fsP">A+</button>
+    <button class="ghost" id="logout">Log out</button>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ============ CONFIG ============ */
+// Paste your Spotify app Client ID here (it is public by design with PKCE).
+const CLIENT_ID = "e1228db9be7e43a397bbd2b76483af81";
+const SCOPES = "user-read-currently-playing user-read-playback-state";
+const POLL_MS = 2500;           // Spotify poll interval
+const LRCLIB = "https://lrclib.net/api";
+/* ================================== */
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+const REDIRECT = location.origin + location.pathname;
+let clientId = CLIENT_ID || store.get("kc_cid") || "";
+
+/* ---------- Spotify auth (PKCE, no server) ---------- */
+function rand(n){
+  const a = new Uint8Array(n); crypto.getRandomValues(a);
+  const cs = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  return Array.from(a, x => cs[x % cs.length]).join("");
+}
+async function sha256b64url(s){
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(d))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+async function login(){
+  const v = rand(64); store.set("kc_verifier", v);
+  const p = new URLSearchParams({
+    client_id: clientId, response_type: "code", redirect_uri: REDIRECT,
+    scope: SCOPES, code_challenge_method: "S256", code_challenge: await sha256b64url(v)
+  });
+  location.href = "https://accounts.spotify.com/authorize?" + p;
+}
+async function tokenReq(body){
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id: clientId, ...body})
+  });
+  const j = await r.json();
+  if(!r.ok) throw new Error(j.error_description || j.error || "token error");
+  store.set("kc_access", j.access_token);
+  store.set("kc_exp", String(Date.now() + (j.expires_in - 60) * 1000));
+  if(j.refresh_token) store.set("kc_refresh", j.refresh_token);
+}
+async function handleRedirect(){
+  const q = new URLSearchParams(location.search);
+  if(q.get("cid")){ clientId = q.get("cid"); store.set("kc_cid", clientId); }
+  const code = q.get("code");
+  if(q.get("error")) showMsg("Spotify login failed", q.get("error"));
+  if(code){
+    try{
+      await tokenReq({grant_type:"authorization_code", code, redirect_uri:REDIRECT,
+                      code_verifier: store.get("kc_verifier") || ""});
+    }catch(e){ showMsg("Login problem", e.message, true); }
+  }
+  if(code || q.get("cid") || q.get("error")) history.replaceState({}, "", REDIRECT);
+}
+async function accessToken(){
+  if(!store.get("kc_access")) return null;
+  if(Date.now() < Number(store.get("kc_exp") || 0)) return store.get("kc_access");
+  const rt = store.get("kc_refresh");
+  if(!rt) return null;
+  try{ await tokenReq({grant_type:"refresh_token", refresh_token: rt}); return store.get("kc_access"); }
+  catch(e){ logout(false); return null; }
+}
+function logout(reload = true){
+  ["kc_access","kc_exp","kc_refresh"].forEach(store.del);
+  if(reload) location.reload();
+}
+
+/* ---------- Lyrics ---------- */
+function parseLRC(txt){
+  const out = [], re = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
+  for(const raw of txt.split(/\r?\n/)){
+    const stamps = [...raw.matchAll(re)];
+    if(!stamps.length) continue;
+    const text = raw.replace(re, "").trim();
+    for(const m of stamps) out.push({t: (+m[1]) * 60 + parseFloat(m[2]), text});
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+const clean = s => s.replace(/\s*[-–]\s*(\d{4}\s*)?(remaster(ed)?|live|mono|stereo|single version|radio edit|version|deluxe|bonus).*$/i, "")
+                    .replace(/\s*[\(\[][^)\]]*(feat|with|remaster|live|version|mono|stereo)[^)\]]*[\)\]]/ig, "").trim();
+async function getJSON(u){
+  const r = await fetch(u, {headers:{"Accept":"application/json"}});
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error("lrclib " + r.status);
+  return r.json();
+}
+async function findLyrics(t){
+  const dur = Math.round(t.duration_ms / 1000);
+  const enc = encodeURIComponent;
+  const tries = [];
+  tries.push(`${LRCLIB}/get?track_name=${enc(t.name)}&artist_name=${enc(t.artist)}&album_name=${enc(t.album)}&duration=${dur}`);
+  const cn = clean(t.name);
+  if(cn !== t.name) tries.push(`${LRCLIB}/get?track_name=${enc(cn)}&artist_name=${enc(t.artist)}&duration=${dur}`);
+  for(const u of tries){
+    try{ const j = await getJSON(u); if(j && (j.syncedLyrics || j.plainLyrics || j.instrumental)) return j; }catch(e){}
+  }
+  // fuzzy search fallback
+  try{
+    const res = await getJSON(`${LRCLIB}/search?track_name=${enc(cn)}&artist_name=${enc(t.artist)}`);
+    if(res && res.length){
+      const ok = res.filter(r => Math.abs((r.duration || 0) - dur) <= 6);
+      const pool = ok.length ? ok : res;
+      pool.sort((a, b) => (!!b.syncedLyrics - !!a.syncedLyrics) || (Math.abs(a.duration - dur) - Math.abs(b.duration - dur)));
+      return pool[0];
+    }
+  }catch(e){}
+  return null;
+}
+async function loadLyrics(t){
+  const key = "kc_l_" + t.id, hit = store.get(key);
+  if(hit){ try{ return JSON.parse(hit); }catch(e){} }
+  const j = await findLyrics(t);
+  const val = j ? {synced: j.syncedLyrics || null, plain: j.plainLyrics || null, inst: !!j.instrumental} : {synced:null, plain:null, inst:false, miss:true};
+  if(!val.miss){
+    try{ localStorage.setItem(key, JSON.stringify(val)); }
+    catch(e){ Object.keys(localStorage).filter(k => k.startsWith("kc_l_")).forEach(k => store.del(k)); }
+  }
+  return val;
+}
+
+/* ---------- State & rendering ---------- */
+const S = {
+  track:null, lines:[], mode:"none",  // synced | plain | none
+  base:0, baseAt:0, playing:false, duration:0,
+  active:-1, offset: parseFloat(store.get("kc_off") || "0"), fs: parseFloat(store.get("kc_fs") || "1"),
+  pollTimer:null, lyricToken:0
+};
+document.documentElement.style.setProperty("--fs", S.fs);
+const posMs = () => S.base + (S.playing ? performance.now() - S.baseAt : 0);
+
+function showMsg(h, p, withButton){
+  const m = $("msg"); m.classList.remove("hidden"); $("lines").classList.add("hidden");
+  m.innerHTML = "";
+  const e1 = document.createElement("h1"); e1.textContent = h; m.appendChild(e1);
+  if(p){ const e2 = document.createElement("p"); e2.textContent = p; m.appendChild(e2); }
+  if(withButton) addLoginUI(m);
+}
+function addLoginUI(m){
+  if(!clientId){
+    const inp = document.createElement("input"); inp.placeholder = "Spotify Client ID"; inp.id = "cid";
+    m.appendChild(inp);
+    const b = document.createElement("button"); b.textContent = "Save ID";
+    b.onclick = () => { const v = inp.value.trim(); if(v){ store.set("kc_cid", v); clientId = v; init(); } };
+    m.appendChild(b);
+  }else{
+    const b = document.createElement("button"); b.textContent = "Connect Spotify"; b.onclick = login; m.appendChild(b);
+  }
+}
+function hideMsg(){ $("msg").classList.add("hidden"); $("lines").classList.remove("hidden"); }
+
+function buildLines(){
+  const box = $("lines"); box.innerHTML = ""; box.style.transform = "translateY(0)";
+  box.classList.toggle("plain", S.mode === "plain");
+  S.lines.forEach((l, i) => {
+    const d = document.createElement("div"); d.className = "line"; d.dataset.i = i;
+    if(!l.text){ d.classList.add("note"); d.textContent = "♪"; }
+    else{
+      // split into words but keep spaces so wrapping works
+      l.words = l.text.split(/(\s+)/).filter(Boolean);
+      let cum = 0; const total = l.text.length || 1; l.cuts = [];
+      l.words.forEach(w => {
+        const s = document.createElement("span");
+        if(/^\s+$/.test(w)){ s.textContent = " "; }
+        else{ s.className = "w"; s.textContent = w; l.cuts.push(cum / total); }
+        d.appendChild(s); cum += w.length;
+      });
+      l.spans = [...d.querySelectorAll(".w")];
+    }
+    if(S.mode === "synced") d.onclick = () => { /* tap to nudge sync: align this line to now */
+      S.offset = (l.t - posMs() / 1000); store.set("kc_off", String(S.offset)); updOff();
+    };
+    box.appendChild(d);
+  });
+  S.active = -2; // force refresh
+}
+function centerOn(el){
+  const st = $("stage").clientHeight;
+  const y = el.offsetTop + el.offsetHeight / 2 - st * 0.42;
+  $("lines").style.transform = `translateY(${-Math.max(0, y)}px)`;
+}
+function frame(){
+  requestAnimationFrame(frame);
+  if(!S.track) return;
+  const ms = posMs();
+  $("barfill").style.width = (S.duration ? Math.min(100, ms / S.duration * 100) : 0) + "%";
+  if(S.mode === "synced"){
+    const t = ms / 1000 + S.offset;
+    let lo = 0, hi = S.lines.length - 1, idx = -1;
+    while(lo <= hi){ const mid = (lo + hi) >> 1; if(S.lines[mid].t <= t){ idx = mid; lo = mid + 1; } else hi = mid - 1; }
+    const kids = $("lines").children;
+    if(idx !== S.active){
+      S.active = idx;
+      for(let i = 0; i < kids.length; i++){
+        const c = kids[i].classList;
+        c.toggle("active", i === idx); c.toggle("past", i < idx); c.toggle("next", i === idx + 1);
+      }
+      if(idx >= 0) centerOn(kids[idx]); else $("lines").style.transform = `translateY(${$("stage").clientHeight * 0.3}px)`;
+    }
+    if(idx >= 0){
+      const l = S.lines[idx];
+      if(l.spans){
+        const next = S.lines[idx + 1] ? S.lines[idx + 1].t : S.duration / 1000;
+        const sing = Math.min(Math.max(next - l.t, 0.5), Math.max(1.2, l.text.length * 0.075));
+        const p = Math.min(1, Math.max(0, (t - l.t) / sing));
+        l.spans.forEach((s, k) => s.classList.toggle("on", l.cuts[k] <= p + 1e-6 && p > 0 || (k === 0 && t >= l.t)));
+      }
+    }
+  }else if(S.mode === "plain"){
+    const box = $("lines"), st = $("stage").clientHeight;
+    const span = Math.max(1, box.scrollHeight - st * 0.6);
+    const f = S.duration ? Math.min(1, ms / S.duration) : 0;
+    box.style.transform = `translateY(${st * 0.15 - f * span}px)`;
+  }
+}
+
+function setStatus(s){ $("status").textContent = s || ""; }
+function updOff(){ $("off").textContent = "sync " + (S.offset >= 0 ? "+" : "") + S.offset.toFixed(1) + "s"; }
+
+async function onTrack(t){
+  S.track = t; S.duration = t.duration_ms; S.lines = []; S.mode = "none"; S.active = -2;
+  $("title").textContent = t.name; $("artist").textContent = t.artist;
+  $("art").style.backgroundImage = t.art ? `url(${t.art})` : "";
+  const bg = $("bg"); if(t.art){ bg.style.backgroundImage = `url(${t.art})`; bg.classList.add("on"); }
+  document.title = t.name + " • " + t.artist;
+  showMsg("Finding lyrics…", t.name);
+  const token = ++S.lyricToken;
+  const ly = await loadLyrics(t);
+  if(token !== S.lyricToken) return;           // song changed meanwhile
+  if(ly.synced){ S.lines = parseLRC(ly.synced); S.mode = "synced"; }
+  else if(ly.plain){ S.lines = ly.plain.split(/\r?\n/).map(x => ({t:0, text:x.trim()})); S.mode = "plain"; setStatus("Unsynced lyrics"); }
+  if(S.mode === "synced" && S.lines.length) { setStatus(""); }
+  if(!S.lines.length){
+    showMsg(ly.inst ? "Instrumental ♫" : "No lyrics found", ly.inst ? "" : "LRCLIB has nothing for this track yet.");
+    return;
+  }
+  hideMsg(); buildLines();
+}
+
+async function poll(){
+  clearTimeout(S.pollTimer);
+  let delay = POLL_MS;
+  try{
+    const tok = await accessToken();
+    if(!tok){ showMsg("Connect Spotify", "Log in once. The page then follows whatever is playing on your account, including the car.", true); $("foot").classList.add("hidden"); return; }
+    $("foot").classList.remove("hidden");
+    const t0 = performance.now();
+    const r = await fetch("https://api.spotify.com/v1/me/player/currently-playing?additional_types=track", {headers:{Authorization:"Bearer " + tok}});
+    const rtt = performance.now() - t0;
+    if(r.status === 204){ S.playing = false; if(!S.track) showMsg("Nothing playing", "Start a song in Spotify (the car's app is fine)."); setStatus("idle"); }
+    else if(r.status === 401){ store.del("kc_exp"); delay = 300; }
+    else if(r.status === 429){ delay = (parseInt(r.headers.get("Retry-After") || "5", 10) + 1) * 1000; setStatus("rate limited"); }
+    else if(r.status === 403){ showMsg("Spotify says no (403)", "In Development Mode your Spotify account must be added under Users and Access in the developer dashboard, and the app owner needs Premium.", false); delay = 15000; }
+    else if(!r.ok){ setStatus("Spotify " + r.status); delay = 5000; }
+    else{
+      const j = await r.json();
+      const it = j.item;
+      if(!it || j.currently_playing_type !== "track"){
+        S.playing = false; setStatus(j.currently_playing_type === "ad" ? "ad playing" : "no track");
+      }else{
+        const est = j.progress_ms + rtt / 2;
+        const t = {id: it.id || (it.name + it.duration_ms), name: it.name,
+                   artist: (it.artists || []).map(a => a.name).join(", "),
+                   album: it.album ? it.album.name : "", duration_ms: it.duration_ms,
+                   art: it.album && it.album.images && it.album.images.length ? it.album.images[Math.min(1, it.album.images.length - 1)].url : ""};
+        const same = S.track && S.track.id === t.id;
+        const cur = posMs();
+        if(same && S.playing && j.is_playing && Math.abs(est - cur) < 350) S.base = cur + (est - cur) * 0.25;
+        else S.base = est;
+        S.baseAt = performance.now(); S.playing = j.is_playing;
+        if(!j.is_playing) setStatus("paused"); else if(S.mode !== "plain") setStatus("");
+        if(!same) onTrack(t);
+      }
+    }
+  }catch(e){ setStatus("offline, retrying"); delay = 4000; }
+  S.pollTimer = setTimeout(poll, delay);
+}
+
+/* ---------- Controls ---------- */
+let idle;
+function wake(){ $("foot").classList.remove("hide"); clearTimeout(idle); idle = setTimeout(() => $("foot").classList.add("hide"), 6000); }
+document.addEventListener("pointerdown", wake);
+$("offM").onclick = () => { S.offset -= 0.5; store.set("kc_off", String(S.offset)); updOff(); };
+$("offP").onclick = () => { S.offset += 0.5; store.set("kc_off", String(S.offset)); updOff(); };
+$("fsM").onclick = () => { S.fs = Math.max(.6, S.fs - .1); store.set("kc_fs", String(S.fs)); document.documentElement.style.setProperty("--fs", S.fs); S.active = -2; };
+$("fsP").onclick = () => { S.fs = Math.min(1.8, S.fs + .1); store.set("kc_fs", String(S.fs)); document.documentElement.style.setProperty("--fs", S.fs); S.active = -2; };
+$("logout").onclick = () => logout(true);
+$("lines").addEventListener("transitionend", () => {});
+
+async function init(){
+  updOff(); wake();
+  try{ if(navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {}); }catch(e){}
+  await handleRedirect();
+  if(!clientId){
+    showMsg("One-time setup", "Paste your Spotify Client ID (or bake it into the CLIENT_ID constant at the top of this file).", true);
+    return;
+  }
+  poll();
+}
+requestAnimationFrame(frame);
+init();
+</script>
+</body>
+</html>
